@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>20 Min Timer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;500&family=Inter:wght@500;600&family=Micro+5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1B1B1B;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+  }
+
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(28px, 5vh, 52px);
+    padding: clamp(16px, 3vh, 32px);
+  }
+
+  .clock-wrap {
+    position: relative;
+    width: min(62vh, 72vw, 410px);
+    height: min(62vh, 72vw, 410px);
+    container-type: size;
+    container-name: clock;
+  }
+
+  .bg-ring,
+  .clock-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Digital time: slightly right of left-half center */
+  .time-display {
+    position: absolute;
+    top: 50%;
+    left: 28%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 0.4s ease;
+  }
+
+  .minutes-text {
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 17cqw;
+    color: #ffffff;
+    line-height: 1;
+    transition: color 0.4s ease, opacity 0.4s ease, font-weight 0.4s ease;
+  }
+
+  .seconds-text {
+    font-family: 'DM Mono', monospace;
+    font-weight: 300;
+    font-size: 17cqw;
+    color: rgba(255, 255, 255, 0.20);
+    line-height: 1;
+    transition: color 0.4s ease, opacity 0.4s ease, font-weight 0.4s ease;
+  }
+
+  /* Done screen overlay — sits inside clock-wrap */
+  .done-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  .done-screen .material-icons-round {
+    font-size: 11cqw;
+    color: rgba(255,255,255,0.45);
+  }
+
+  .done-screen .done-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 8cqw;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+  }
+
+  /* ── Intro animation initial states ── */
+  #progressArc  { transition: none; }
+  .time-display { transition: opacity 0.4s ease, transform 0.4s ease; }
+  .controls     { transition: opacity 0.4s ease; }
+  .controls {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+    width: min(56vw, 280px);
+    transition: opacity 0.4s ease;
+  }
+
+  .btn {
+    width: clamp(58px, 9vw, 78px);
+    height: clamp(58px, 9vw, 78px);
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease,
+                background 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                width 0.45s cubic-bezier(0.25, 1, 0.5, 1),
+                border-radius 0.45s cubic-bezier(0.25, 1, 0.5, 1),
+                opacity 0.3s ease;
+    outline: none;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .btn:active { transform: scale(0.92); }
+  .btn-play   { background: #ffffff; }
+  .btn-cancel { background: #F9A9A9; }
+
+  /* START pill — initial idle state */
+  .btn-play.is-start {
+    width: min(56vw, 280px);
+    border-radius: 100px;
+    background: #ffffff;
+    gap: 10px;
+  }
+
+  .btn-play .start-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: clamp(16px, 2.5vw, 20px);
+    color: #1B1B1B;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: none;
+  }
+
+  .btn-play.is-start .start-label { display: inline; }
+  .btn-play.is-start #playIcon    { display: block !important; }
+  .btn-play.is-start #pauseIcon   { display: none !important; }
+
+  /* cancel button hidden until timer starts */
+  .btn-cancel.is-hidden {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    overflow: hidden;
+  }
+
+  /* RESTART pill state — applied via JS */
+  .btn-cancel.is-restart {
+    width: 100%;
+    border-radius: 100px;
+    background: #F9A9A9;
+    gap: 6px;
+  }
+
+  .btn-cancel .restart-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: clamp(19px, 3vw, 24px);
+    color: #E73131;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: none;
+  }
+
+  .btn-cancel.is-restart .restart-label {
+    display: inline;
+  }
+
+  .btn-cancel .cancel-icon  { display: block; }
+  .btn-cancel.is-restart .cancel-icon { display: none; }
+  .btn-cancel .restart-icon { display: none; }
+  .btn-cancel.is-restart .restart-icon { display: flex; }
+  /* DEV: Skip button */
+  .skip-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 6px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.2s ease;
+  }
+  .skip-btn:hover { background: rgba(255,255,255,0.10); }
+  .skip-btn:active { transform: scale(0.95); }
+  .skip-btn span.skip-text {
+    font-family: 'Micro 5', monospace;
+    font-size: 20px;
+    color: #ffffff;
+    letter-spacing: 0.05em;
+    line-height: 1;
+  }
+  .skip-btn svg { flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="clock-wrap">
+
+    <!-- Ghost background ring -->
+    <svg class="bg-ring" id="bgRing" viewBox="0 0 440 440" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="220" cy="220" r="200"
+        fill="none"
+        stroke="rgba(255,255,255,0.10)"
+        stroke-width="6"
+      />
+    </svg>
+
+    <!-- Clock SVG: progress arc, minute hand, second hand -->
+    <svg class="clock-svg" id="clockSvg" viewBox="0 0 440 440" xmlns="http://www.w3.org/2000/svg"
+         style="transition: opacity 0.4s ease;">
+      <circle
+        id="progressArc"
+        cx="220" cy="220" r="200"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="6"
+        stroke-linecap="round"
+        stroke-dasharray="1256.64" stroke-dashoffset="0"
+        transform="rotate(90 220 220) scale(-1 -1) translate(-440 -440)"
+      />
+      <line id="minuteHand"
+        x1="220" y1="220" x2="220" y2="220"
+        stroke="#ffffff" stroke-width="0" stroke-linecap="round"
+      />
+      <line id="secondHand"
+        x1="220" y1="220" x2="220" y2="220"
+        stroke="#E73131" stroke-width="2.5" stroke-linecap="square"
+      />
+    </svg>
+
+    <!-- Digital display -->
+    <div class="time-display" id="timeDisplay">
+      <span class="minutes-text" id="minDisplay">20</span>
+      <span class="seconds-text" id="secDisplay">00</span>
+    </div>
+
+    <!-- Done screen (fades in on completion) -->
+    <div class="done-screen" id="doneScreen">
+      <!-- Inline timer done icon -->
+      <svg style="width:11cqw; height:11cqw;" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g opacity="0.7">
+        <path d="M36.5 45.6662L31.75 40.9162C31.0834 40.2495 30.3056 39.9162 29.4167 39.9162C28.5278 39.9162 27.75 40.2495 27.0834 40.9162C26.4167 41.5828 26.0834 42.3751 26.0834 43.2928C26.0834 44.2106 26.4167 45.0017 27.0834 45.6662L34.1667 52.8329C34.8334 53.4995 35.6111 53.8328 36.5 53.8328C37.3889 53.8328 38.1667 53.4995 38.8334 52.8329L53 38.6662C53.6667 37.9995 54 37.2084 54 36.2928C54 35.3773 53.6667 34.5851 53 33.9162C52.3334 33.2473 51.5422 32.914 50.6267 32.9162C49.7111 32.9184 48.9189 33.2517 48.25 33.9162L36.5 45.6662ZM28.2934 70.9595C24.6534 69.3751 21.4867 67.2362 18.7934 64.5429C16.1 61.8495 13.9611 58.6828 12.3767 55.0429C10.7922 51.4029 10 47.4995 10 43.3328C10 39.1662 10.7922 35.264 12.3767 31.6262C13.9611 27.9884 16.0989 24.8217 18.79 22.1262C21.4811 19.4306 24.6478 17.2917 28.29 15.7095C31.9322 14.1273 35.8356 13.3351 40 13.3328C44.1645 13.3306 48.0678 14.1228 51.71 15.7095C55.3522 17.2962 58.5189 19.4351 61.21 22.1262C63.9011 24.8173 66.04 27.984 67.6267 31.6262C69.2134 35.2684 70.0045 39.1706 70 43.3328C69.9956 47.4951 69.2045 51.3984 67.6267 55.0429C66.0489 58.6873 63.91 61.854 61.21 64.5429C58.51 67.2317 55.3434 69.3706 51.71 70.9595C48.0767 72.5484 44.1734 73.3395 40 73.3328C35.8267 73.3262 31.9245 72.5351 28.2934 70.9595ZM6.83335 24.3328C6.22224 23.7217 5.91669 22.944 5.91669 21.9995C5.91669 21.0551 6.22224 20.2773 6.83335 19.6662L16.3334 10.1662C16.9445 9.55507 17.7222 9.24951 18.6667 9.24951C19.6111 9.24951 20.3889 9.55507 21 10.1662C21.6111 10.7773 21.9167 11.5551 21.9167 12.4995C21.9167 13.444 21.6111 14.2217 21 14.8328L11.5 24.3328C10.8889 24.944 10.1111 25.2495 9.16669 25.2495C8.22224 25.2495 7.44446 24.944 6.83335 24.3328ZM73.1667 24.3328C72.5556 24.944 71.7778 25.2495 70.8334 25.2495C69.8889 25.2495 69.1111 24.944 68.5 24.3328L59 14.8328C58.3889 14.2217 58.0834 13.444 58.0834 12.4995C58.0834 11.5551 58.3889 10.7773 59 10.1662C59.6111 9.55507 60.3889 9.24951 61.3334 9.24951C62.2778 9.24951 63.0556 9.55507 63.6667 10.1662L73.1667 19.6662C73.7778 20.2773 74.0834 21.0551 74.0834 21.9995C74.0834 22.944 73.7778 23.7217 73.1667 24.3328ZM40 66.6662C46.5 66.6662 52.0145 64.4028 56.5434 59.8762C61.0722 55.3495 63.3356 49.8351 63.3334 43.3328C63.3311 36.8306 61.0678 31.3173 56.5434 26.7928C52.0189 22.2684 46.5045 20.004 40 19.9995C33.4956 19.9951 27.9822 22.2595 23.46 26.7928C18.9378 31.3262 16.6734 36.8395 16.6667 43.3328C16.66 49.8262 18.9245 55.3406 23.46 59.8762C27.9956 64.4117 33.5089 66.6751 40 66.6662Z" fill="white"/>
+        </g>
+      </svg>
+      <span class="done-label">Timer Done</span>
+    </div>
+
+  </div>
+
+  <!-- Controls -->
+  <div class="controls" id="controls">
+    <button class="btn btn-play is-start" id="playBtn">
+      <svg id="playIcon" width="22" height="22" viewBox="0 0 32 32" fill="none">
+        <path d="M10 6L26 16L10 26V6Z" fill="#1B1B1B"/>
+      </svg>
+      <svg id="pauseIcon" width="26" height="26" viewBox="0 0 32 32" fill="none" style="display:none">
+        <rect x="7" y="5" width="7" height="22" rx="1.5" fill="#ffffff"/>
+        <rect x="18" y="5" width="7" height="22" rx="1.5" fill="#ffffff"/>
+      </svg>
+      <span class="start-label">Start</span>
+    </button>
+
+    <button class="btn btn-cancel is-hidden" id="cancelBtn">
+      <!-- X icon (default) -->
+      <span class="cancel-icon">
+        <svg width="33" height="33" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#rc2)">
+          <path d="M32 0C14.1714 0 0 14.1714 0 32C0 49.8286 14.1714 64 32 64C49.8286 64 64 49.8286 64 32C64 14.1714 49.8286 0 32 0Z" fill="#F9A9A9"/>
+          <path d="M47 25.3333H38.4286C37.9234 25.3333 37.4389 25.1327 37.0817 24.7755C36.7245 24.4182 36.5238 23.9338 36.5238 23.4286C36.5238 22.9234 36.7245 22.4389 37.0817 22.0817C37.4389 21.7245 37.9234 21.5238 38.4286 21.5238H45.0952V14.8572C45.0952 14.352 45.2959 13.8675 45.6531 13.5103C46.0103 13.1531 46.4948 12.9524 47 12.9524C47.5052 12.9524 47.9897 13.1531 48.3469 13.5103C48.7041 13.8675 48.9048 14.352 48.9048 14.8572V23.4286C48.9048 23.9338 48.7041 24.4182 48.3469 24.7755C47.9897 25.1327 47.5052 25.3333 47 25.3333Z" fill="#E73131"/>
+          <path d="M32 51.0476C28.6559 51.0505 25.3699 50.1729 22.4725 48.5031C19.575 46.8333 17.1683 44.43 15.4943 41.535C13.8202 38.64 12.9378 35.3553 12.9359 32.0112C12.9339 28.667 13.8124 25.3813 15.4831 22.4843C17.1538 19.5874 19.5577 17.1813 22.4531 15.5081C25.3486 13.8348 28.6336 12.9534 31.9777 12.9524C35.3219 12.9514 38.6074 13.8308 41.5039 15.5023C44.4003 17.1738 46.8057 19.5784 48.4781 22.4743C48.7147 22.9102 48.7718 23.4213 48.6375 23.8987C48.5031 24.3762 48.1878 24.7824 47.7586 25.031C47.3294 25.2796 46.8202 25.3509 46.3391 25.2299C45.8581 25.1089 45.4433 24.805 45.1829 24.3829C43.3302 21.1897 40.38 18.7788 36.8817 17.5992C33.3835 16.4197 29.5757 16.5519 26.1678 17.9713C22.7598 19.3907 19.9839 22.0004 18.3572 25.3144C16.7304 28.6285 16.3638 32.4208 17.3255 35.9851C18.2872 39.5494 20.5117 42.6426 23.5846 44.6886C26.6576 46.7346 30.3695 47.5938 34.0289 47.1063C37.6883 46.6188 41.0458 44.8177 43.4759 42.0386C45.906 39.2594 47.2431 35.6918 47.2381 32C47.2381 31.4948 47.4388 31.0103 47.796 30.6531C48.1532 30.2959 48.6377 30.0952 49.1429 30.0952C49.6481 30.0952 50.1325 30.2959 50.4898 30.6531C50.847 31.0103 51.0476 31.4948 51.0476 32C51.0426 37.0502 49.0342 41.8921 45.4632 45.4631C41.8921 49.0342 37.0502 51.0426 32 51.0476Z" fill="#E73131"/>
+          </g>
+          <defs><clipPath id="rc2"><rect width="64" height="64" fill="white"/></clipPath></defs>
+        </svg>
+      </span>
+      <!-- Restart icon (done state) -->
+      <span class="restart-icon" style="align-items:center;">
+        <svg width="33" height="33" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#rc)">
+          <path d="M32 0C14.1714 0 0 14.1714 0 32C0 49.8286 14.1714 64 32 64C49.8286 64 64 49.8286 64 32C64 14.1714 49.8286 0 32 0Z" fill="#F9A9A9"/>
+          <path d="M47 25.3333H38.4286C37.9234 25.3333 37.4389 25.1327 37.0817 24.7755C36.7245 24.4182 36.5238 23.9338 36.5238 23.4286C36.5238 22.9234 36.7245 22.4389 37.0817 22.0817C37.4389 21.7245 37.9234 21.5238 38.4286 21.5238H45.0952V14.8572C45.0952 14.352 45.2959 13.8675 45.6531 13.5103C46.0103 13.1531 46.4948 12.9524 47 12.9524C47.5052 12.9524 47.9897 13.1531 48.3469 13.5103C48.7041 13.8675 48.9048 14.352 48.9048 14.8572V23.4286C48.9048 23.9338 48.7041 24.4182 48.3469 24.7755C47.9897 25.1327 47.5052 25.3333 47 25.3333Z" fill="#E73131"/>
+          <path d="M32 51.0476C28.6559 51.0505 25.3699 50.1729 22.4725 48.5031C19.575 46.8333 17.1683 44.43 15.4943 41.535C13.8202 38.64 12.9378 35.3553 12.9359 32.0112C12.9339 28.667 13.8124 25.3813 15.4831 22.4843C17.1538 19.5874 19.5577 17.1813 22.4531 15.5081C25.3486 13.8348 28.6336 12.9534 31.9777 12.9524C35.3219 12.9514 38.6074 13.8308 41.5039 15.5023C44.4003 17.1738 46.8057 19.5784 48.4781 22.4743C48.7147 22.9102 48.7718 23.4213 48.6375 23.8987C48.5031 24.3762 48.1878 24.7824 47.7586 25.031C47.3294 25.2796 46.8202 25.3509 46.3391 25.2299C45.8581 25.1089 45.4433 24.805 45.1829 24.3829C43.3302 21.1897 40.38 18.7788 36.8817 17.5992C33.3835 16.4197 29.5757 16.5519 26.1678 17.9713C22.7598 19.3907 19.9839 22.0004 18.3572 25.3144C16.7304 28.6285 16.3638 32.4208 17.3255 35.9851C18.2872 39.5494 20.5117 42.6426 23.5846 44.6886C26.6576 46.7346 30.3695 47.5938 34.0289 47.1063C37.6883 46.6188 41.0458 44.8177 43.4759 42.0386C45.906 39.2594 47.2431 35.6918 47.2381 32C47.2381 31.4948 47.4388 31.0103 47.796 30.6531C48.1532 30.2959 48.6377 30.0952 49.1429 30.0952C49.6481 30.0952 50.1325 30.2959 50.4898 30.6531C50.847 31.0103 51.0476 31.4948 51.0476 32C51.0426 37.0502 49.0342 41.8921 45.4632 45.4631C41.8921 49.0342 37.0502 51.0426 32 51.0476Z" fill="#E73131"/>
+          </g>
+          <defs><clipPath id="rc"><rect width="64" height="64" fill="white"/></clipPath></defs>
+        </svg>
+      </span>
+      <!-- Restart label -->
+      <span class="restart-label">Restart</span>
+    </button>
+  </div>
+</div>
+
+<script>
+  const TOTAL = 20 * 60;
+  const CIRC  = 2 * Math.PI * 200;
+  const CX = 220, CY = 220;
+  const MIN_LEN = 172;
+  const SEC_LEN = 218;
+
+  let remaining = TOTAL;
+  let running = false;
+  let rafId = null;
+  let lastTs = null;
+  let isDone = false;
+
+  const progressArc = document.getElementById('progressArc');
+  const minuteHand  = document.getElementById('minuteHand');
+  const secondHand  = document.getElementById('secondHand');
+  const minDisplay  = document.getElementById('minDisplay');
+  const secDisplay  = document.getElementById('secDisplay');
+  const playBtn     = document.getElementById('playBtn');
+  const playIcon    = document.getElementById('playIcon');
+  const pauseIcon   = document.getElementById('pauseIcon');
+  const cancelBtn   = document.getElementById('cancelBtn');
+  const clockSvg    = document.getElementById('clockSvg');
+  const timeDisplay = document.getElementById('timeDisplay');
+  const doneScreen  = document.getElementById('doneScreen');
+
+  function updateUI(rem) {
+    const mins = Math.floor(rem / 60);
+    const secs = rem % 60;
+
+    minDisplay.textContent = String(mins).padStart(2, '0');
+    secDisplay.textContent = String(secs).padStart(2, '0');
+
+    // Swap font styles from 00:59 downward — seconds get emphasis
+    if (rem < 60) {
+      minDisplay.className = 'seconds-text';
+      secDisplay.className = 'minutes-text';
+    } else {
+      minDisplay.className = 'minutes-text';
+      secDisplay.className = 'seconds-text';
+    }
+
+    progressArc.setAttribute('stroke-dashoffset', CIRC * (1 - rem / TOTAL));
+    progressArc.setAttribute('stroke', rem <= 60 ? '#E73131' : '#ffffff');
+
+    const minDeg = (rem / TOTAL) * 120;
+    const minRad = (minDeg - 90) * Math.PI / 180;
+    minuteHand.setAttribute('x2', CX + MIN_LEN * Math.cos(minRad));
+    minuteHand.setAttribute('y2', CY + MIN_LEN * Math.sin(minRad));
+
+    const secDeg = (secs / 60) * 360;
+    const secRad = (secDeg - 90) * Math.PI / 180;
+    secondHand.setAttribute('x2', CX + SEC_LEN * Math.cos(secRad));
+    secondHand.setAttribute('y2', CY + SEC_LEN * Math.sin(secRad));
+  }
+
+  function playDoneSound() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Pattern: beep beep .... beep beep
+    // [0ms, 180ms] then pause, [600ms, 780ms]
+    const beeps = [0, 180, 600, 780, 1400, 1580, 2000, 2180];
+    beeps.forEach(startMs => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 880; // A5 — clear, pleasant
+      const start = ctx.currentTime + startMs / 1000;
+      const dur = 0.13;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.4, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+      osc.start(start);
+      osc.stop(start + dur);
+    });
+  }
+
+  function showDoneScreen() {
+    isDone = true;
+    playDoneSound();
+    // Fade out clock face elements
+    clockSvg.style.opacity   = '0';
+    timeDisplay.style.opacity = '0';
+    // Fade in done overlay
+    doneScreen.style.opacity      = '1';
+    doneScreen.style.pointerEvents = 'none';
+    // Hide play button, morph cancel → restart pill
+    playBtn.style.opacity = '0';
+    playBtn.style.pointerEvents = 'none';
+    playBtn.style.width = '0';
+    playBtn.style.overflow = 'hidden';
+    cancelBtn.classList.add('is-restart');
+  }
+
+  function hideDoneScreen() {
+    isDone = false;
+    clockSvg.style.opacity    = '1';
+    timeDisplay.style.opacity  = '1';
+    doneScreen.style.opacity       = '0';
+    doneScreen.style.pointerEvents  = 'none';
+    playBtn.style.opacity      = '1';
+    playBtn.style.pointerEvents = 'auto';
+    playBtn.style.width = '';
+    cancelBtn.classList.remove('is-restart');
+  }
+
+  function loop(ts) {
+    if (!lastTs) {
+      lastTs = ts;
+      if (remaining > 0) remaining--;
+      updateUI(remaining);
+      if (remaining <= 0) { setPlayState(false); showDoneScreen(); return; }
+    }
+    const elapsed = ts - lastTs;
+    if (elapsed >= 1000) {
+      lastTs = ts - (elapsed % 1000);
+      if (remaining > 0) remaining--;
+      updateUI(remaining);
+      if (remaining <= 0) {
+        setPlayState(false);
+        showDoneScreen();
+        return;
+      }
+    }
+    if (running) rafId = requestAnimationFrame(loop);
+  }
+
+  let hasStarted = false; // tracks if timer has ever been started
+
+  function setPlayState(on) {
+    running = on;
+    playIcon.style.display  = on ? 'none'  : 'block';
+    pauseIcon.style.display = on ? 'block' : 'none';
+    playBtn.style.background = on ? 'rgba(255,255,255,0.08)' : '#ffffff';
+
+    if (on && !hasStarted) {
+      // First start: morph pill → round button, reveal cancel
+      hasStarted = true;
+      playBtn.classList.remove('is-start');
+      cancelBtn.classList.remove('is-hidden');
+    }
+  }
+
+  function resetToIdle() {
+    // Go back to START pill state
+    hasStarted = false;
+    playBtn.classList.add('is-start');
+    playBtn.style.background = '#ffffff';
+    playIcon.style.display  = 'block';
+    pauseIcon.style.display = 'none';
+    cancelBtn.classList.add('is-hidden');
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (!introComplete || isDone || remaining <= 0) return;
+    if (!running) {
+      lastTs = null;
+      setPlayState(true);
+      rafId = requestAnimationFrame(loop);
+    } else {
+      setPlayState(false);
+      cancelAnimationFrame(rafId);
+    }
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    if (isDone) {
+      hideDoneScreen();
+      setPlayState(false);
+      cancelAnimationFrame(rafId);
+      remaining = TOTAL;
+      lastTs = null;
+      updateUI(remaining);
+      resetToIdle();
+      return;
+    }
+    setPlayState(false);
+    cancelAnimationFrame(rafId);
+    remaining = TOTAL;
+    lastTs = null;
+    updateUI(remaining);
+    resetToIdle();
+  });
+
+  // ── Intro animation ──
+  let introComplete = false;
+  playBtn.style.pointerEvents  = 'none';
+  cancelBtn.style.pointerEvents = 'none';
+
+  updateUI(remaining);
+
+  // Hide time & controls initially
+  timeDisplay.style.opacity   = '0';
+  timeDisplay.style.transform = 'translate(-50%, calc(-50% + 12px))';
+  document.querySelector('.controls').style.opacity = '0';
+
+  // Reset hands to start positions
+  minuteHand.setAttribute('x2', CX);
+  minuteHand.setAttribute('y2', CY);
+  const secStartRad = -90 * Math.PI / 180;
+  secondHand.setAttribute('x2', CX + SEC_LEN * Math.cos(secStartRad));
+  secondHand.setAttribute('y2', CY + SEC_LEN * Math.sin(secStartRad));
+
+  // Arc starts empty
+  progressArc.setAttribute('stroke-dashoffset', CIRC);
+
+  // Hide hands fully at start
+  secondHand.setAttribute('x2', CX);
+  secondHand.setAttribute('y2', CY);
+  minuteHand.setAttribute('x2', CX);
+  minuteHand.setAttribute('y2', CY);
+  minuteHand.setAttribute('stroke-width', '0');
+
+  // Timing offsets (all relative to introStart)
+  const ARC_START   = 0;
+  const ARC_DUR     = 1600;
+  const SEC_GROW_START = 300;   // second hand grows after arc begins
+  const SEC_GROW_DUR   = 400;   // grows to full length
+  const SEC_SPIN_START = 700;   // spin starts right after grow
+  const SEC_SPIN_DUR   = 1000;  // full 360
+  const MIN_START   = SEC_SPIN_START + 200; // minute starts shortly after spin begins
+  const MIN_DUR     = 1000;
+  const NUM_DELAY   = MIN_START + 400;
+  const CTRL_DELAY  = NUM_DELAY + 400;
+
+  function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+  function easeOut(t)   { return 1 - (1-t)*(1-t); }
+
+  const introStart = performance.now();
+  let numbersStarted  = false;
+  let controlsStarted = false;
+  let introDone       = false;
+
+  // Track second hand current angle for smooth handoff grow→spin
+  let secCurrentLen = 0;
+
+  function animIntro(now) {
+    const elapsed = now - introStart;
+
+    // ── Arc ──
+    const tArc = Math.min((elapsed - ARC_START) / ARC_DUR, 1);
+    progressArc.setAttribute('stroke-dashoffset', CIRC * (1 - easeInOut(Math.max(tArc, 0))));
+
+    // ── Second hand: grow from center ──
+    if (elapsed >= SEC_GROW_START && elapsed < SEC_SPIN_START) {
+      const tg = Math.min((elapsed - SEC_GROW_START) / SEC_GROW_DUR, 1);
+      secCurrentLen = easeOut(tg) * SEC_LEN;
+      const secRad = -90 * Math.PI / 180; // pointing at 12 while growing
+      secondHand.setAttribute('x2', CX + secCurrentLen * Math.cos(secRad));
+      secondHand.setAttribute('y2', CY + secCurrentLen * Math.sin(secRad));
+    }
+
+    // ── Second hand: 360 spin ──
+    if (elapsed >= SEC_SPIN_START) {
+      const ts = Math.min((elapsed - SEC_SPIN_START) / SEC_SPIN_DUR, 1);
+      const secRad = (easeInOut(ts) * 360 - 90) * Math.PI / 180;
+      secondHand.setAttribute('x2', CX + SEC_LEN * Math.cos(secRad));
+      secondHand.setAttribute('y2', CY + SEC_LEN * Math.sin(secRad));
+    }
+
+    // ── Minute hand: scale up from 0 then grow outward ──
+    if (elapsed >= MIN_START) {
+      const tm = Math.min((elapsed - MIN_START) / MIN_DUR, 1);
+      const minDeg = (remaining / TOTAL) * 120;
+      const minRad = (minDeg - 90) * Math.PI / 180;
+      const len = easeOut(tm) * MIN_LEN;
+      minuteHand.setAttribute('x2', CX + len * Math.cos(minRad));
+      minuteHand.setAttribute('y2', CY + len * Math.sin(minRad));
+      // Scale stroke width from 0 → 8 to avoid dot artifact
+      minuteHand.setAttribute('stroke-width', Math.min(tm * 80, 8));
+    }
+
+    // ── Numbers ──
+    if (elapsed >= NUM_DELAY && !numbersStarted) {
+      numbersStarted = true;
+      timeDisplay.style.transition = 'opacity 0.6s ease-out, transform 0.6s ease-out';
+      timeDisplay.style.opacity    = '1';
+      timeDisplay.style.transform  = 'translate(-50%, -50%)';
+    }
+
+    // ── Controls ──
+    if (elapsed >= CTRL_DELAY && !controlsStarted) {
+      controlsStarted = true;
+      const ctrl = document.querySelector('.controls');
+      ctrl.style.transition = 'opacity 0.4s ease-out';
+      ctrl.style.opacity    = '1';
+    }
+
+    // ── Unlock ──
+    if (elapsed >= CTRL_DELAY + 400 && !introDone) {
+      introDone = true;
+      introComplete = true;
+      minuteHand.setAttribute('stroke-width', '8');
+      playBtn.style.pointerEvents   = 'auto';
+      cancelBtn.style.pointerEvents = 'auto';
+      return;
+    }
+
+    requestAnimationFrame(animIntro);
+  }
+  requestAnimationFrame(animIntro);
+</script>
+
+<!-- DEV: skip to last 3 seconds -->
+<button class="skip-btn" id="skipBtn">
+  <span class="skip-text">SKIP</span>
+  <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0 0L7 7L0 14V0Z" fill="white"/>
+    <path d="M9 0L16 7L9 14V0Z" fill="white"/>
+    <rect x="17" y="0" width="1.5" height="14" rx="0.75" fill="white"/>
+  </svg>
+</button>
+
+<script>
+  document.getElementById('skipBtn').addEventListener('click', () => {
+    if (isDone) return;
+    cancelAnimationFrame(rafId);
+    remaining = 63;
+    lastTs = null;
+    updateUI(remaining);
+    setPlayState(true);
+    running = true;
+    rafId = requestAnimationFrame(loop);
+  });
+</script>
+
+</body>
+</html>
