@@ -196,12 +196,31 @@
   .btn-cancel.is-restart .cancel-icon { display: none; }
   .btn-cancel .restart-icon { display: none; }
   .btn-cancel.is-restart .restart-icon { display: flex; }
-  /* DEV: Skip button */
+  @keyframes spin-reset {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  .cancel-icon.is-spinning svg {
+    animation: spin-reset 1.1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  /* digit fade-out/in */
+  .digit-fade-out {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px));
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+  }
+  .digit-fade-in {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.35s ease-out, transform 0.35s ease-out;
+  }
   .skip-btn {
+    display: none;
     position: fixed;
     top: 20px;
     right: 20px;
-    display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px 16px;
@@ -330,8 +349,6 @@
 
   let remaining = TOTAL;
   let running = false;
-  let rafId = null;
-  let lastTs = null;
   let isDone = false;
 
   const progressArc = document.getElementById('progressArc');
@@ -343,6 +360,7 @@
   const playIcon    = document.getElementById('playIcon');
   const pauseIcon   = document.getElementById('pauseIcon');
   const cancelBtn   = document.getElementById('cancelBtn');
+  const cancelIcon  = cancelBtn.querySelector('.cancel-icon');
   const clockSvg    = document.getElementById('clockSvg');
   const timeDisplay = document.getElementById('timeDisplay');
   const doneScreen  = document.getElementById('doneScreen');
@@ -428,25 +446,31 @@
     cancelBtn.classList.remove('is-restart');
   }
 
-  function loop(ts) {
-    if (!lastTs) {
-      lastTs = ts;
-      if (remaining > 0) remaining--;
-      updateUI(remaining);
-      if (remaining <= 0) { setPlayState(false); showDoneScreen(); return; }
+  let endTime = null;   // absolute timestamp when timer will finish
+  let tickInterval = null;
+
+  function tick() {
+    if (!running) return;
+    const now = Date.now();
+    const rem = Math.max(0, Math.round((endTime - now) / 1000));
+    remaining = rem;
+    updateUI(remaining);
+    if (remaining <= 0) {
+      clearInterval(tickInterval);
+      tickInterval = null;
+      setPlayState(false);
+      showDoneScreen();
     }
-    const elapsed = ts - lastTs;
-    if (elapsed >= 1000) {
-      lastTs = ts - (elapsed % 1000);
-      if (remaining > 0) remaining--;
-      updateUI(remaining);
-      if (remaining <= 0) {
-        setPlayState(false);
-        showDoneScreen();
-        return;
-      }
-    }
-    if (running) rafId = requestAnimationFrame(loop);
+  }
+
+  function startTicking() {
+    if (tickInterval) clearInterval(tickInterval);
+    endTime = Date.now() + remaining * 1000;
+    tickInterval = setInterval(tick, 500); // poll every 500ms for accuracy
+  }
+
+  function stopTicking() {
+    if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   }
 
   let hasStarted = false; // tracks if timer has ever been started
@@ -475,35 +499,157 @@
     cancelBtn.classList.add('is-hidden');
   }
 
+  function animateReset(onComplete) {
+    // Capture current positions before reset
+    const startDashOffset = parseFloat(progressArc.getAttribute('stroke-dashoffset')) || 0;
+
+    // Second hand current angle (in degrees, 0 = right = 3 o'clock)
+    const sx = parseFloat(secondHand.getAttribute('x2')) - CX;
+    const sy = parseFloat(secondHand.getAttribute('y2')) - CY;
+    let secAngleNow = Math.atan2(sy, sx) * 180 / Math.PI; // -180 to 180
+    // Target: 12 o'clock = -90°
+    const secTarget = -90;
+    // Second hand: always rotates counter-clockwise back to 12 o'clock
+    const secTargetNorm = ((secTarget % 360) + 360) % 360;
+    const secNowNorm    = ((secAngleNow % 360) + 360) % 360;
+    let secDelta = secTargetNorm - secNowNorm;
+    if (secDelta <= 0) secDelta += 360; // force counter-clockwise (always positive)
+    if (secDelta === 0) secDelta = 360;
+
+    // Minute hand current angle
+    const mx = parseFloat(minuteHand.getAttribute('x2')) - CX;
+    const my = parseFloat(minuteHand.getAttribute('y2')) - CY;
+    let minAngleNow = Math.atan2(my, mx) * 180 / Math.PI;
+    // Target: 20min mark = 120° clockwise from 12 = 30° in math coords
+    const minTarget = 30; // (120 - 90)
+    let minDelta = minTarget - minAngleNow;
+    if (minDelta > 180)  minDelta -= 360;
+    if (minDelta < -180) minDelta += 360;
+
+    // Spring params — overshoot proportional to distance
+    const minLen = parseFloat(minuteHand.getAttribute('x2') - CX) || MIN_LEN;
+    const RESET_DUR = 1400;
+    const SEC_DUR   = 600;
+
+    function easeOut(t)   { return 1 - (1-t)*(1-t); }
+    function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+    // Damped spring: fast start, overshoots target, pendulum oscillation, settles
+    function spring(t) {
+      const overshoot = Math.min(Math.abs(minDelta) / 120, 1) * 0.5 + 0.2;
+      // Damped sinusoid: moves toward 1, oscillates around it, decays
+      return 1 - Math.exp(-5 * t) * (Math.cos(10 * t) + 0.5 * Math.sin(10 * t)) * overshoot;
+    }
+
+    const resetStart = performance.now();
+
+    function animReset(now) {
+      const t = Math.min((now - resetStart) / RESET_DUR, 1);
+      const te  = easeOut(t);
+      const tie = easeInOut(t);
+      const ts  = spring(t);
+
+      // Arc back to full
+      progressArc.setAttribute('stroke-dashoffset', startDashOffset * (1 - tie));
+      progressArc.setAttribute('stroke', '#ffffff');
+
+      // Second hand eases to 12 o'clock
+      const tSec = Math.min((now - resetStart) / SEC_DUR, 1);
+      const secAngle = (secAngleNow + secDelta * easeOut(tSec)) * Math.PI / 180;
+      secondHand.setAttribute('x2', CX + SEC_LEN * Math.cos(secAngle));
+      secondHand.setAttribute('y2', CY + SEC_LEN * Math.sin(secAngle));
+
+      // Minute hand springs to 20min position
+      const minAngle = (minAngleNow + minDelta * ts) * Math.PI / 180;
+      minuteHand.setAttribute('x2', CX + MIN_LEN * Math.cos(minAngle));
+      minuteHand.setAttribute('y2', CY + MIN_LEN * Math.sin(minAngle));
+
+      if (t < 1) {
+        requestAnimationFrame(animReset);
+      } else {
+        // Snap to exact final positions
+        const secFinalRad = secTarget * Math.PI / 180;
+        secondHand.setAttribute('x2', CX + SEC_LEN * Math.cos(secFinalRad));
+        secondHand.setAttribute('y2', CY + SEC_LEN * Math.sin(secFinalRad));
+        const minFinalRad = minTarget * Math.PI / 180;
+        minuteHand.setAttribute('x2', CX + MIN_LEN * Math.cos(minFinalRad));
+        minuteHand.setAttribute('y2', CY + MIN_LEN * Math.sin(minFinalRad));
+        progressArc.setAttribute('stroke-dashoffset', '0');
+        if (onComplete) onComplete();
+      }
+    }
+    requestAnimationFrame(animReset);
+  }
+
   playBtn.addEventListener('click', () => {
     if (!introComplete || isDone || remaining <= 0) return;
     if (!running) {
-      lastTs = null;
       setPlayState(true);
-      rafId = requestAnimationFrame(loop);
+      startTicking();
     } else {
       setPlayState(false);
-      cancelAnimationFrame(rafId);
+      stopTicking();
     }
   });
+
+  function animateResetFeedback(onHandsComplete) {
+    // 1. Spin the restart icon
+    cancelIcon.classList.add('is-spinning');
+    cancelIcon.querySelector('svg').addEventListener('animationend', () => {
+      cancelIcon.classList.remove('is-spinning');
+    }, { once: true });
+
+    // 2. Fade digits out via inline style (preserve centering transform)
+    timeDisplay.style.transition = 'opacity 0.2s ease-out, transform 0.2s ease-out';
+    timeDisplay.style.opacity    = '0';
+    timeDisplay.style.transform  = 'translate(-50%, calc(-50% + 8px))';
+
+    // 3. After fade-out, update text, fade back in
+    setTimeout(() => {
+      minDisplay.textContent = '20';
+      secDisplay.textContent = '00';
+      minDisplay.className = 'minutes-text';
+      secDisplay.className = 'seconds-text';
+      timeDisplay.style.transition = 'opacity 0.35s ease-out, transform 0.35s ease-out';
+      timeDisplay.style.opacity    = '1';
+      timeDisplay.style.transform  = 'translate(-50%, -50%)';
+    }, 220);
+
+    onHandsComplete();
+  }
 
   cancelBtn.addEventListener('click', () => {
     if (isDone) {
       hideDoneScreen();
       setPlayState(false);
-      cancelAnimationFrame(rafId);
+      stopTicking();
       remaining = TOTAL;
-      lastTs = null;
-      updateUI(remaining);
-      resetToIdle();
+      progressArc.setAttribute('stroke', '#ffffff');
+      playBtn.style.pointerEvents   = 'none';
+      cancelBtn.style.pointerEvents = 'none';
+      animateResetFeedback(() => {
+        animateReset(() => {
+          updateUI(remaining);
+          resetToIdle();
+          playBtn.style.pointerEvents   = 'auto';
+          cancelBtn.style.pointerEvents = 'auto';
+        });
+      });
       return;
     }
     setPlayState(false);
-    cancelAnimationFrame(rafId);
+    stopTicking();
     remaining = TOTAL;
-    lastTs = null;
-    updateUI(remaining);
-    resetToIdle();
+    progressArc.setAttribute('stroke', '#ffffff');
+    playBtn.style.pointerEvents   = 'none';
+    cancelBtn.style.pointerEvents = 'none';
+    animateResetFeedback(() => {
+      animateReset(() => {
+        updateUI(remaining);
+        resetToIdle();
+        playBtn.style.pointerEvents   = 'auto';
+        cancelBtn.style.pointerEvents = 'auto';
+      });
+    });
   });
 
   // ── Intro animation ──
@@ -638,13 +784,17 @@
 <script>
   document.getElementById('skipBtn').addEventListener('click', () => {
     if (isDone) return;
-    cancelAnimationFrame(rafId);
+    stopTicking();
     remaining = 63;
-    lastTs = null;
     updateUI(remaining);
+    if (!hasStarted) {
+      hasStarted = true;
+      playBtn.classList.remove('is-start');
+      cancelBtn.classList.remove('is-hidden');
+    }
     setPlayState(true);
     running = true;
-    rafId = requestAnimationFrame(loop);
+    startTicking();
   });
 </script>
 
